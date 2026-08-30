@@ -189,10 +189,19 @@ branch, and can also be started manually from the Actions tab. It advances the
 `GAMC786/SafeNet-Shield-Official` and creates or updates a pull request against
 the official repository's `main` branch.
 
-The workflow requires a `GITHUB_RELEASE_TOKEN` Actions secret in the source
-repository. The token must be able to push branches and create pull requests in
-`GAMC786/SafeNet-Shield-Official`. It is not used for source pull requests, and
-it must not be printed in workflow output.
+The workflow requires an `OFFICIAL_REPO_TOKEN` Actions secret in the source
+repository. GitHub reserves secret names beginning with `GITHUB_`, so the
+workspace token may not use its `GITHUB_RELEASE_TOKEN` name when it is added to
+Actions. Use a fine-grained token scoped only to
+`GAMC786/SafeNet-Shield-Official` with:
+
+- **Contents:** Read and write
+- **Pull requests:** Read and write
+- **Metadata:** Read-only
+
+No source-repository administration or Actions-management access is needed. The
+token is not used for source pull requests, and it must not be printed in
+workflow output.
 
 Reviewers must merge the synchronization pull request before changes become
 part of the official `main` branch. The workflow never force-pushes the sync
