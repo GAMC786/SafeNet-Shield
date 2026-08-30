@@ -1,0 +1,117 @@
+name: Sync SafeNet-Shield-Official
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The source repository's GITHUB_TOKEN is intentionally read-only. The
+# cross-repository token is used only for the explicit push and PR steps below.
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-official
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # This file is copied to the official repository by the sync PR. Keep it
+    # inert there so the official repository can never sync back to itself.
+    if: github.repository == 'GAMC786/SafeNet-Shield'
+    runs-on: ubuntu-latest
+    env:
+      OFFICIAL_REPOSITORY: GAMC786/SafeNet-Shield-Official
+      SYNC_BRANCH: sync/from-safenet-shield
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push source snapshot to the official sync branch
+        env:
+          OFFICIAL_REPO_TOKEN: ${{ secrets.GITHUB_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${OFFICIAL_REPO_TOKEN}" ]]; then
+            echo "::error::GITHUB_RELEASE_TOKEN is required to sync SafeNet-Shield-Official."
+            exit 1
+          fi
+
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${OFFICIAL_REPO_TOKEN}" | base64 -w 0)"
+          official_url="https://github.com/${OFFICIAL_REPOSITORY}.git"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add official "${official_url}"
+
+          # Fetch the existing branch, if any, so git can enforce a normal
+          # fast-forward push. This deliberately refuses to overwrite a
+          # branch that was changed independently in the official repository.
+          if git -c http.extraheader="${auth_header}" fetch official \
+            "refs/heads/${SYNC_BRANCH}:refs/remotes/official/${SYNC_BRANCH}"; then
+            existing_sha="$(git rev-parse "refs/remotes/official/${SYNC_BRANCH}")"
+            if ! git merge-base --is-ancestor "${existing_sha}" HEAD; then
+              echo "::error::${SYNC_BRANCH} has diverged in ${OFFICIAL_REPOSITORY}; refusing to force-push it."
+              exit 1
+            fi
+          fi
+
+          git -c http.extraheader="${auth_header}" push official \
+            "HEAD:refs/heads/${SYNC_BRANCH}"
+
+      - name: Create or update the official review pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          head_ref="${GITHUB_REPOSITORY_OWNER}:${SYNC_BRANCH}"
+          existing_pr="$(gh pr list \
+            --repo "${OFFICIAL_REPOSITORY}" \
+            --head "${head_ref}" \
+            --base main \
+            --state open \
+            --json url \
+            --jq '.[0].url')"
+
+          if [[ -n "${existing_pr}" ]]; then
+            echo "Official sync pull request is already open: ${existing_pr}"
+            exit 0
+          fi
+
+          ahead_by="$(gh api \
+            "repos/${OFFICIAL_REPOSITORY}/compare/main...${SYNC_BRANCH}" \
+            --jq '.ahead_by')"
+
+          if [[ "${ahead_by}" -eq 0 ]]; then
+            echo "The official main branch already contains this source snapshot."
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "${OFFICIAL_REPOSITORY}" \
+            --head "${head_ref}" \
+            --base main \
+            --title "Sync SafeNet-Shield source" \
+            --body "$(cat <<'EOF'
+          ## Summary
+
+          This pull request mirrors the reviewed source state from
+          [SafeNet-Shield](https://github.com/GAMC786/SafeNet-Shield) into the
+          official repository.
+
+          ## Review and release policy
+
+          - The official `main` branch is updated only by merging this pull request.
+          - This automation never force-pushes or writes directly to official `main`.
+          - After merging, create the matching `v*` tag in this repository when
+            publishing an official release. See `BUILD_INSTRUCTIONS.md` for the
+            full release and tag procedure.
+          EOF
+          )"

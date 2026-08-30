@@ -180,6 +180,53 @@ This project includes a GitHub Actions workflow that automatically builds APK an
 
 ---
 
+## Keeping SafeNet-Shield-Official synchronized
+
+`GAMC786/SafeNet-Shield` is the source repository. The
+`Sync SafeNet-Shield-Official` workflow runs after every push to its `main`
+branch, and can also be started manually from the Actions tab. It advances the
+`sync/from-safenet-shield` branch in
+`GAMC786/SafeNet-Shield-Official` and creates or updates a pull request against
+the official repository's `main` branch.
+
+The workflow requires a `GITHUB_RELEASE_TOKEN` Actions secret in the source
+repository. The token must be able to push branches and create pull requests in
+`GAMC786/SafeNet-Shield-Official`. It is not used for source pull requests, and
+it must not be printed in workflow output.
+
+Reviewers must merge the synchronization pull request before changes become
+part of the official `main` branch. The workflow never force-pushes the sync
+branch and never writes directly to official `main`. If someone changes the
+sync branch independently, the workflow stops rather than overwriting that
+work; resolve the branch manually before running synchronization again. The
+existing replication pull request is independent of this recurring sync branch
+and is not modified by the workflow.
+
+### Release workflows and tags
+
+The build workflow is present in both repositories after a synchronization
+pull request is merged. It builds validation artifacts for branches and pull
+requests. A `v*` tag runs the release job in the repository where that tag was
+created and attaches the APK and MSI artifacts to a GitHub Release.
+
+To publish an official release:
+
+1. Merge the reviewed synchronization pull request into
+   `GAMC786/SafeNet-Shield-Official/main`.
+2. Ensure the `package.json` version and the release version agree.
+3. Create and push the matching tag from the official repository, for example:
+   ```bash
+   git tag -a v1.0.0 -m "SafeNet DNS v1.0.0"
+   git push origin v1.0.0
+   ```
+4. Download the APK and MSI from the resulting official GitHub Release.
+
+Tags created only in the source repository are not copied automatically and do
+not publish an official release. This keeps official releases tied to reviewed
+content on the official `main` branch.
+
+---
+
 ## Version Information
 - App ID: com.safenet.dns
 - App Name: SafeNet DNS
